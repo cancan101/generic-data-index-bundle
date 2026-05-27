@@ -24,7 +24,6 @@ use Pimcore\Bundle\GenericDataIndexBundle\Exception\InvalidArgumentException;
 use Pimcore\Bundle\GenericDataIndexBundle\Message\EnqueueRelatedIdsMessage;
 use Pimcore\Bundle\GenericDataIndexBundle\Repository\IndexQueueRepository;
 use Pimcore\Bundle\GenericDataIndexBundle\SearchIndexAdapter\BulkOperationServiceInterface;
-use Pimcore\Bundle\GenericDataIndexBundle\SearchIndexAdapter\PathServiceInterface;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\ElementServiceInterface;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueue\EnqueueServiceInterface;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexService\IndexServiceInterface;
@@ -42,7 +41,6 @@ final class IndexQueueService implements IndexQueueServiceInterface
 
     public function __construct(
         private readonly IndexServiceInterface $indexService,
-        private readonly PathServiceInterface $pathService,
         private readonly BulkOperationServiceInterface $bulkOperationService,
         private readonly IndexQueueRepository $indexQueueRepository,
         private readonly EnqueueServiceInterface $enqueueService,
@@ -73,8 +71,6 @@ final class IndexQueueService implements IndexQueueServiceInterface
                     $this->handleQueueByOperation($element, $operation, $processSynchronously);
                 }
             }
-
-            $this->pathService->rewriteChildrenIndexPaths($element);
         } catch (Exception $e) {
             $this->logger->error(
                 sprintf(

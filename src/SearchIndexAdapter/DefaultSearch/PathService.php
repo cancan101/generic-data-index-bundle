@@ -47,7 +47,19 @@ final class PathService implements PathServiceInterface
     {
         $oldFullPath = $this->getCurrentIndexFullPath($element);
 
-        if (empty($oldFullPath) || $oldFullPath === $element->getRealFullPath()) {
+        if (empty($oldFullPath)) {
+            return;
+        }
+
+        $this->rewriteChildrenIndexPathsBetween($element, $oldFullPath, $element->getRealFullPath());
+    }
+
+    public function rewriteChildrenIndexPathsBetween(
+        ElementInterface $element,
+        string $oldFullPath,
+        string $newFullPath
+    ): void {
+        if ($oldFullPath === $newFullPath) {
             return;
         }
 
@@ -66,21 +78,16 @@ final class PathService implements PathServiceInterface
         }
 
         if ($countResult > $this->searchIndexConfigService->getMaxSynchronousChildrenRenameLimit()) {
-            $msg = sprintf(
-                'Direct rewrite of children paths in OpenSearch was skipped as more than %s
-                items need an update (%s items).
-                The index will be updated asynchronously via index update queue command cronjob.',
+            $this->logger->info(sprintf(
+                'Direct rewrite of children paths in OpenSearch was skipped as more than %s items need an update (%s items). The index will be updated asynchronously via index update queue command cronjob.',
                 $this->searchIndexConfigService->getMaxSynchronousChildrenRenameLimit(),
                 $countResult
-            );
-            $this->logger->info(
-                $msg
-            );
+            ));
 
             return;
         }
 
-        $this->updatePath($indexName, $oldFullPath, $element->getRealFullPath());
+        $this->updatePath($indexName, $oldFullPath, $newFullPath);
     }
 
     public function getCurrentIndexFullPath(ElementInterface $element): ?string
