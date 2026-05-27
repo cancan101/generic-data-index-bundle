@@ -29,5 +29,20 @@ interface PathServiceInterface
      */
     public function rewriteChildrenIndexPaths(ElementInterface $element): void;
 
+    /**
+     * Same contract as {@see self::rewriteChildrenIndexPaths()} but skips the search-index
+     * round-trip used to discover the old path. Callers that already know the pre-rename
+     * path (e.g. from the Pimcore POST_UPDATE event's "oldPath" argument) should use this
+     * variant so the rewrite is independent of whether the search index still reflects the
+     * pre-rename state.
+     *
+     * @throws Exception
+     */
+    public function rewriteChildrenIndexPathsBetween(
+        ElementInterface $element,
+        string $oldFullPath,
+        string $newFullPath
+    ): void;
+
     public function getCurrentIndexFullPath(ElementInterface $element): ?string;
 }

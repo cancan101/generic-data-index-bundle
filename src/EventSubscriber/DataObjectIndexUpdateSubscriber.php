@@ -16,6 +16,7 @@ namespace Pimcore\Bundle\GenericDataIndexBundle\EventSubscriber;
 use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\ElementType;
 use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\IndexQueueOperation;
 use Pimcore\Bundle\GenericDataIndexBundle\Installer;
+use Pimcore\Bundle\GenericDataIndexBundle\Message\RewriteChildrenIndexPathsMessage;
 use Pimcore\Bundle\GenericDataIndexBundle\Message\UpdateSiblingsMessage;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\Search\SearchService\DataObject\SearchHelper;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueue\QueueMessagesDispatcher;
@@ -71,6 +72,18 @@ final class DataObjectIndexUpdateSubscriber implements EventSubscriberInterface
                 true
             )
         );
+
+        if ($event->hasArgument('oldPath')) {
+            $this->messageBus->dispatch(
+                new RewriteChildrenIndexPathsMessage(
+                    $event->getObject()->getId(),
+                    ElementType::DATA_OBJECT,
+                    (string) $event->getArgument('oldPath'),
+                    $event->getObject()->getRealFullPath()
+                )
+            );
+        }
+
         $this->updateData($event);
     }
 

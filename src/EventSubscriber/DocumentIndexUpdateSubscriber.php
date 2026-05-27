@@ -16,6 +16,7 @@ namespace Pimcore\Bundle\GenericDataIndexBundle\EventSubscriber;
 use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\ElementType;
 use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\IndexQueueOperation;
 use Pimcore\Bundle\GenericDataIndexBundle\Installer;
+use Pimcore\Bundle\GenericDataIndexBundle\Message\RewriteChildrenIndexPathsMessage;
 use Pimcore\Bundle\GenericDataIndexBundle\Message\UpdateSiblingsMessage;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\Search\SearchService\Document\SearchHelper;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueue\QueueMessagesDispatcher;
@@ -67,6 +68,18 @@ final readonly class DocumentIndexUpdateSubscriber implements EventSubscriberInt
                 false
             )
         );
+
+        if ($event->hasArgument('oldPath')) {
+            $this->messageBus->dispatch(
+                new RewriteChildrenIndexPathsMessage(
+                    $event->getDocument()->getId(),
+                    ElementType::DOCUMENT,
+                    (string) $event->getArgument('oldPath'),
+                    $event->getDocument()->getRealFullPath()
+                )
+            );
+        }
+
         $this->updateData($event);
     }
 

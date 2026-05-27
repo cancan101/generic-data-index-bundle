@@ -13,8 +13,10 @@ declare(strict_types=1);
 
 namespace Pimcore\Bundle\GenericDataIndexBundle\EventSubscriber;
 
+use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\ElementType;
 use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\IndexQueueOperation;
 use Pimcore\Bundle\GenericDataIndexBundle\Installer;
+use Pimcore\Bundle\GenericDataIndexBundle\Message\RewriteChildrenIndexPathsMessage;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueue\QueueMessagesDispatcher;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueue\SynchronousProcessingRelatedIdsServiceInterface;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueue\SynchronousProcessingServiceInterface;
@@ -22,6 +24,7 @@ use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexQueueServiceI
 use Pimcore\Event\AssetEvents;
 use Pimcore\Event\Model\AssetEvent;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\Messenger\MessageBusInterface;
 
 /**
  * @internal
@@ -33,7 +36,8 @@ final readonly class AssetIndexUpdateSubscriber implements EventSubscriberInterf
         private Installer $installer,
         private QueueMessagesDispatcher $queueMessagesDispatcher,
         private SynchronousProcessingServiceInterface $synchronousProcessing,
-        private SynchronousProcessingRelatedIdsServiceInterface $synchronousProcessingRelatedIds
+        private SynchronousProcessingRelatedIdsServiceInterface $synchronousProcessingRelatedIds,
+        private MessageBusInterface $messageBus
     ) {
     }
 
@@ -50,6 +54,17 @@ final readonly class AssetIndexUpdateSubscriber implements EventSubscriberInterf
     {
         if (!$this->installer->isInstalled()) {
             return;
+        }
+
+        if ($event->hasArgument('oldPath')) {
+            $this->messageBus->dispatch(
+                new RewriteChildrenIndexPathsMessage(
+                    $event->getAsset()->getId(),
+                    ElementType::ASSET,
+                    (string) $event->getArgument('oldPath'),
+                    $event->getAsset()->getRealFullPath()
+                )
+            );
         }
 
         $this->indexQueueService
