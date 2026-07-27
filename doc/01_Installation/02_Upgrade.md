@@ -5,6 +5,11 @@ description: Version-specific upgrade instructions and breaking changes for the 
 
 # Upgrade Information
 
+## Upgrade to 2026.3.0
+
+- Added command `generic-data-index:cleanup:unused-indices` to delete managed indices not referenced by any alias.
+ 
+
 ## Upgrade to 2026.1.0
 
 ### PHP and Dependency Requirements
@@ -34,6 +39,28 @@ description: Version-specific upgrade instructions and breaking changes for the 
 - The messenger transport DSN is now configurable via the `%pimcore.messenger.transport_dsn_prefix%`
   container parameter (env: `PIMCORE_MESSENGER_TRANSPORT_DSN_PREFIX`) instead of being hardcoded to
   `doctrine://default`.
+
+## Upgrade to 2.5.6
+- [Commands] `generic-data-index:deployment:reindex` and `generic-data-index:reindex` now exit with a non-zero status
+  code when reindexing fails, instead of always returning `0`. Deployment pipelines executing these commands will now
+  fail visibly on reindex errors — previously such errors were only printed while the process reported success.
+- [Indexing] Reindexing failures are no longer silently swallowed: if both the reindex and the fallback index
+  recreation fail, the exception now propagates and the mapping checksum is not stored, so the reindex of the class
+  definition is retried on the next run.
+
+## Upgrade to 2.5.4
+- [Searching] The full-text search (`FullTextSearch` modifier) now defaults to `default_operator: AND` and
+  `flags: PHRASE|WHITESPACE` for better relevance and to treat characters like `-` and `.` as literal text.
+
+## Upgrade to 2.5.3
+- [Indexing] Added `isReferenced` field to asset index to support filtering for unreferenced assets.
+- [Indexing] Fixed: Unpublished data objects are now correctly indexed in relation fields (ManyToOne, ManyToMany, AdvancedManyToMany)
+
+### Re-indexing required
+After upgrading, execute the following command to re-index elements to include all modifications:
+```
+bin/console generic-data-index:update:index -r
+```
 
 ## Upgrade to 2.2.0
 

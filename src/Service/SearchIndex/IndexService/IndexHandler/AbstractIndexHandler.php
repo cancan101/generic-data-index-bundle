@@ -15,6 +15,7 @@ namespace Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\IndexService
 
 use Exception;
 use JsonException;
+use Pimcore\Bundle\GenericDataIndexBundle\SearchIndexAdapter\DefaultSearch\DefaultSearchService;
 use Pimcore\Bundle\GenericDataIndexBundle\SearchIndexAdapter\IndexMappingServiceInterface;
 use Pimcore\Bundle\GenericDataIndexBundle\SearchIndexAdapter\SearchIndexServiceInterface;
 use Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex\SearchIndexConfigServiceInterface;
@@ -42,6 +43,26 @@ abstract class AbstractIndexHandler implements IndexHandlerInterface
         $aliasName = $this->getAliasIndexName($context);
 
         if ($forceCreateIndex || !$this->searchIndexService->existsAlias($aliasName)) {
+            // Recover from corrupted state: both -even and -odd may exist without an alias
+            // (e.g. after a failed reindex). Delete both and recreate cleanly.
+            if (!$this->searchIndexService->existsAlias($aliasName)) {
+                $versions = [DefaultSearchService::INDEX_VERSION_EVEN, DefaultSearchService::INDEX_VERSION_ODD];
+                foreach ($versions as $version) {
+                    $this->searchIndexService->deleteIndex($aliasName . '-' . $version, true);
+                }
+
+                // While the alias is missing, indexing traffic can auto-create a concrete
+                // index carrying the exact alias name; attaching the alias would then fail
+                // with invalid_alias_name_exception. Its data is derived from the database
+                // and gets rebuilt by the reindex following the recreation.
+                if ($this->searchIndexService->existsIndex($aliasName)) {
+                    $this->logger->warning(
+                        sprintf('Deleting index "%s" occupying the alias name before recreation', $aliasName)
+                    );
+                    $this->searchIndexService->deleteIndex($aliasName, true);
+                }
+            }
+
             $this->createIndex($context, $aliasName);
         }
 
@@ -79,8 +100,17 @@ abstract class AbstractIndexHandler implements IndexHandlerInterface
             } catch (Exception $e) {
                 try {
                     $this->updateMapping($context, true, $mappingProperties);
-                } catch (Exception $e) {
-                    $this->logger->error('Reindexing failed due to following error: ' . $e);
+                } catch (Exception $fallbackException) {
+                    // Both the reindex and the fallback recreation failed: rethrow so the
+                    // failure reaches the caller instead of the mapping checksum being
+                    // stored as if the reindex had succeeded.
+                    $this->logger->error(sprintf(
+                        'Reindexing failed due to following error: %s (initial reindex failure: %s)',
+                        $fallbackException,
+                        $e->getMessage()
+                    ));
+
+                    throw $fallbackException;
                 }
             }
         }

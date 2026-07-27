@@ -245,15 +245,52 @@ class DefaultSearchServiceTest extends \Codeception\Test\Unit
         $this->assertEquals(3, $result->getTotalHits());
         $this->assertCount(2, $result->getHits());
 
-        $this->assertCount(1, $searchIndexService->getExecutedSearches());
-        $searchInformation = $searchIndexService->getExecutedSearches()[0];
-        $this->assertEquals($search, $searchInformation->getSearch());
-        $this->assertTrue($searchInformation->isSuccess());
-        $this->assertEquals($searchInformation->getResponse()['hits']['total']['value'], $result->getTotalHits());
-        $this->assertIsNumeric($searchInformation->getExecutionTime());
-        $this->assertNotEmpty($searchInformation->getStackTrace());
+        // executed searches are only collected in debug mode (kernel.debug) —
+        // covered by the unit test Tests\Unit\...\Search\SearchExecutionServiceTest
 
         $searchIndexService->deleteIndex('test_index');
+    }
+
+    public function testGetCount(): void
+    {
+        /** @var SearchIndexServiceInterface $searchIndexService */
+        $searchIndexService = $this->tester->grabService(SearchIndexServiceInterface::class);
+        /** @var SearchClientInterface $searchClient */
+        $searchClient = $this->tester->grabService('generic-data-index.search-client');
+
+        $searchIndexService->createIndex('test_index');
+        $searchClient->create(['index' => 'test_index', 'refresh' => true, 'id'=>1, 'body' => ['test' => 'test']]);
+        $searchClient->create(['index' => 'test_index', 'refresh' => true, 'id'=>2, 'body' => ['test' => 'test']]);
+        $searchClient->create(['index' => 'test_index', 'refresh' => true, 'id'=>3, 'body' => ['test' => 'test2']]);
+
+        // Count all documents
+        /** @var Search $search */
+        $search = $searchIndexService->createPaginatedSearch(1, 10);
+        $count = $searchIndexService->getCount($search, 'test_index');
+        $this->assertEquals(3, $count);
+
+        // Count with a filter
+        $search = $searchIndexService->createPaginatedSearch(1, 10);
+        $search->addQuery(new TermFilter('test', 'test'));
+        $count = $searchIndexService->getCount($search, 'test_index');
+        $this->assertEquals(2, $count);
+
+        $searchIndexService->deleteIndex('test_index');
+    }
+
+    public function testGetCountReturnsZeroForEmptyIndex(): void
+    {
+        /** @var SearchIndexServiceInterface $searchIndexService */
+        $searchIndexService = $this->tester->grabService(SearchIndexServiceInterface::class);
+
+        $searchIndexService->createIndex('test_empty_index');
+
+        /** @var Search $search */
+        $search = $searchIndexService->createPaginatedSearch(1, 10);
+        $count = $searchIndexService->getCount($search, 'test_empty_index');
+        $this->assertEquals(0, $count);
+
+        $searchIndexService->deleteIndex('test_empty_index');
     }
 
     public function getTestGetStats(): void

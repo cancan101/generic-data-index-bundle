@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Pimcore\Bundle\GenericDataIndexBundle\Service\SearchIndex;
 
+use Doctrine\DBAL\Connection;
 use Exception;
 use Pimcore\Bundle\GenericDataIndexBundle\Entity\IndexQueue;
 use Pimcore\Bundle\GenericDataIndexBundle\Enum\SearchIndex\ElementType;
@@ -32,6 +33,7 @@ use Pimcore\Bundle\GenericDataIndexBundle\Traits\LoggerAwareTrait;
 use Pimcore\Model\Asset;
 use Pimcore\Model\Element\ElementInterface;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Throwable;
 
 /**
  * @internal
@@ -48,7 +50,8 @@ final class IndexQueueService implements IndexQueueServiceInterface
         private readonly EnqueueServiceInterface $enqueueService,
         private readonly ElementServiceInterface $elementService,
         private readonly SearchIndexConfigServiceInterface $searchIndexConfigService,
-        private readonly MessageBusInterface $messageBus
+        private readonly MessageBusInterface $messageBus,
+        private readonly Connection $connection
     ) {
     }
 
@@ -61,6 +64,22 @@ final class IndexQueueService implements IndexQueueServiceInterface
     ): IndexQueueService {
         try {
             $this->checkOperationValid($operation);
+
+            // Do not send to the search index synchronously when inside an open database transaction
+            // for UPDATE operations. The save event fires after Pimcore's inner savepoint commits
+            // but before any outer transaction the caller opened, so the DB record may still be
+            // rolled back. Fall back to the queue path: the queue entry lives in the same
+            // transaction and is rolled back together with the object if the caller rolls back.
+            // DELETE operations are exempt: they only need the element ID (no DB read required)
+            // and child deletions fire their POST_DELETE while still inside the parent's transaction,
+            // so this check would prevent synchronous index cleanup of deleted children.
+            if (
+                $processSynchronously &&
+                $operation !== IndexQueueOperation::DELETE->value &&
+                $this->connection->getTransactionNestingLevel() > 0
+            ) {
+                $processSynchronously = false;
+            }
 
             if ($processSynchronously) {
                 $this->doHandleIndexData($element, $operation);
@@ -93,22 +112,36 @@ final class IndexQueueService implements IndexQueueServiceInterface
      */
     public function handleIndexQueueEntries(array $entries): void
     {
-        try {
+        $processedEntries = [];
 
-            foreach ($entries as $entry) {
-                $this->logger->debug(
+        foreach ($entries as $entry) {
+            try {
+                // Field-level extraction failures (e.g. a missing physical file backing an asset's
+                // thumbnail/text/duration/dimensions) are caught inside the asset-type serialization
+                // handlers and degrade that single field to null; they never reach this catch. Such
+                // an entry is intentionally treated as processed - a missing file will not reappear,
+                // so retrying it forever would be pointless - and is indexed with the fields it could
+                // extract. Only failures that abort handling entirely (e.g. an unresolvable element,
+                // an index/backend error) land here; the entry stays dispatched and is picked up
+                // again by dispatchItems()'s existing 24h staleness reclaim, same as before this fix
+                // isolated failures to a single entry instead of aborting the whole batch.
+                $this->handleEntryByOperation($entry->getOperation(), $entry);
+                $processedEntries[] = $entry;
+            } catch (Throwable $e) {
+                $this->logger->error(
                     sprintf(
-                        '%s updating index for element %s and type %s',
+                        '%s failed to update index for element %s and type %s. Error: %s',
                         IndexQueue::TABLE,
                         $entry->getElementId(),
-                        $entry->getElementType()
+                        $entry->getElementType(),
+                        $e->getMessage()
                     ));
-                $this->handleEntryByOperation($entry->getOperation(), $entry);
             }
+        }
 
+        try {
             $this->bulkOperationService->commit();
-            $this->indexQueueRepository->deleteQueueEntries($entries);
-
+            $this->indexQueueRepository->deleteQueueEntries($processedEntries);
         } catch (Exception $e) {
             throw new HandleIndexQueueEntriesException('handleIndexQueueEntry failed! Error: ' . $e->getMessage(), 0, $e);
         }
